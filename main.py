@@ -1,16 +1,24 @@
-# This is a sample Python script.
+from fastapi import FastAPI, HTTPException
+from schemas import RewriteRequest, RewriteResponse, TokensUsed
+from settings import settings
+from llm_client import call_llm
 
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+app = FastAPI(title="Article Rewriter API", version="1.0.0")
 
+@app.post("/v1/rewrite-summarize", response_model=RewriteResponse)
+async def rewrite_summarize(payload: RewriteRequest):
+    if len(payload.body.strip()) < 50:
+        raise HTTPException(status_code=422, detail="본문이 너무 짧습니다(최소 50자).")
+    try:
+        new_title, summary, in_tok, out_tok, model, latency = call_llm(payload.title, payload.body)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
-
-
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print_hi('PyCharm')
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+    return RewriteResponse(
+        articleId=payload.articleId,
+        newTitle=new_title.strip(),
+        summary=summary.strip(),
+        tokensUsed=TokensUsed(input=in_tok, output=out_tok),
+        model=model,
+        latencyMs=latency
+    )
