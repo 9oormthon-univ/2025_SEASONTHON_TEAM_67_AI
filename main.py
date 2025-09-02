@@ -1,20 +1,23 @@
 from fastapi import FastAPI, HTTPException
-from schemas import RewriteRequest, RewriteResponse, TokensUsed
-from llm_client import call_llm, suggest_questions
+import asyncio
+from schemas import (
+    RewriteRequest, RewriteResponse, TokensUsed,
+    RewriteBatchRequest, RewriteBatchResponse, RewriteBatchItemResult, RewriteBatchItemIn
+)
+from llm_client import call_llm, suggest_questions_and_quiz
 
-app = FastAPI(title="Article Rewriter API", version="1.1.0")
+app = FastAPI(title="Article Rewriter API", version="1.3.1")
+
+CONCURRENCY_ARTICLES = 4  # 해커톤용
 
 @app.post("/v1/rewrite-summarize", response_model=RewriteResponse)
 async def rewrite_summarize(payload: RewriteRequest):
     body = payload.body.strip()
     if len(body) < 50:
         raise HTTPException(status_code=422, detail="본문이 너무 짧습니다(최소 50자).")
-
     try:
-        # 요약/새 제목
-        new_title, summary, in_tok1, out_tok1, model, latency1 = call_llm(payload.title, body)
-        # 추천 질문
-        questions, in_tok2, out_tok2, _, latency2 = suggest_questions(payload.title, body, n=4)
+        new_title, summary, in1, out1, model, lat1 = call_llm(payload.title, body)
+        questions, quiz, in2, out2, _, lat2 = suggest_questions_and_quiz(payload.title, body)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -22,8 +25,46 @@ async def rewrite_summarize(payload: RewriteRequest):
         articleId=payload.articleId,
         newTitle=new_title.strip(),
         summary=summary.strip(),
-        questions=questions[:4],
-        tokensUsed=TokensUsed(input=in_tok1 + in_tok2, output=out_tok1 + out_tok2),
+        questions=questions,
+        quiz=quiz,
+        tokensUsed=TokensUsed(input=in1 + in2, output=out1 + out2),
         model=model,
-        latencyMs=latency1 + latency2
+        latencyMs=lat1 + lat2
     )
+
+@app.post("/v1/rewrite-batch", response_model=RewriteBatchResponse)
+async def rewrite_batch(payload: RewriteBatchRequest):
+    sem = asyncio.Semaphore(CONCURRENCY_ARTICLES)
+
+    async def process_one(item: RewriteBatchItemIn) -> RewriteBatchItemResult:
+        async with sem:
+            body = (item.body or "").strip()
+            if len(body) < 50:
+                return RewriteBatchItemResult(
+                    articleId=item.articleId, ok=False,
+                    error="본문이 너무 짧습니다(최소 50자)."
+                )
+            try:
+                new_title, summary, in1, out1, model, lat1 = await asyncio.to_thread(
+                    call_llm, item.title, body
+                )
+                questions, quiz, in2, out2, _, lat2 = await asyncio.to_thread(
+                    suggest_questions_and_quiz, item.title, body
+                )
+                resp = RewriteResponse(
+                    articleId=item.articleId,
+                    newTitle=new_title.strip(),
+                    summary=summary.strip(),
+                    questions=questions,
+                    quiz=quiz,
+                    tokensUsed=TokensUsed(input=in1 + in2, output=out1 + out2),
+                    model=model,
+                    latencyMs=lat1 + lat2
+                )
+                return RewriteBatchItemResult(articleId=item.articleId, ok=True, data=resp)
+            except Exception as e:
+                return RewriteBatchItemResult(articleId=item.articleId, ok=False, error=str(e))
+
+    tasks = [process_one(it) for it in payload.items]
+    results = await asyncio.gather(*tasks)
+    return RewriteBatchResponse(results=list(results))

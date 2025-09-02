@@ -1,4 +1,4 @@
-from typing import Annotated, List
+from typing import Annotated, List, Literal, Optional
 from pydantic import BaseModel, StringConstraints
 
 StrMin1 = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -13,11 +13,34 @@ class TokensUsed(BaseModel):
     input: int = 0
     output: int = 0
 
+class Quiz(BaseModel):
+    question: StrMin1
+    answer: Literal["YES", "NO"]  # 대문자 YES/NO만 허용
+
 class RewriteResponse(BaseModel):
     articleId: str
     newTitle: str
     summary: str
     questions: List[str]
+    quiz: Quiz
     tokensUsed: TokensUsed
     model: str
     latencyMs: int
+
+# ------- 배치 전용(느슨하게: body 길이 제한 없음) -------
+class RewriteBatchItemIn(BaseModel):
+    articleId: StrMin1
+    title: StrMin1
+    body: str  # 길이 제한 제거 (엔드포인트 내부에서 검사)
+
+class RewriteBatchRequest(BaseModel):
+    items: List[RewriteBatchItemIn]
+
+class RewriteBatchItemResult(BaseModel):
+    articleId: str
+    ok: bool
+    data: Optional[RewriteResponse] = None
+    error: Optional[str] = None
+
+class RewriteBatchResponse(BaseModel):
+    results: List[RewriteBatchItemResult]
