@@ -2,13 +2,13 @@ from fastapi import FastAPI, HTTPException
 import asyncio
 from schemas import (
     RewriteRequest, RewriteResponse, TokensUsed,
-    RewriteBatchRequest, RewriteBatchResponse, RewriteBatchItemResult, RewriteBatchItemIn
+    RewriteBatchRequest, RewriteBatchResponse, RewriteBatchItemResult, RewriteBatchItemIn, ChatArticleRequest, ChatArticleResponse
 )
-from llm_client import call_llm, suggest_questions_and_quiz
+from llm_client import call_llm, suggest_questions_and_quiz, chat_about_article
 
 app = FastAPI(title="Article Rewriter API", version="1.3.1")
 
-CONCURRENCY_ARTICLES = 4  # 해커톤용
+CONCURRENCY_ARTICLES = 4 #한번에 요청 개수 제한
 
 @app.post("/v1/rewrite-summarize", response_model=RewriteResponse)
 async def rewrite_summarize(payload: RewriteRequest):
@@ -68,3 +68,25 @@ async def rewrite_batch(payload: RewriteBatchRequest):
     tasks = [process_one(it) for it in payload.items]
     results = await asyncio.gather(*tasks)
     return RewriteBatchResponse(results=list(results))
+
+
+@app.post("/v1/chat-article", response_model=ChatArticleResponse)
+async def chat_article(payload: ChatArticleRequest):
+    try:
+        answer, model, latency = chat_about_article(
+            payload.articleId,
+            payload.userId,
+            payload.summary,
+            payload.history,
+            payload.userMessage,
+        )
+        return ChatArticleResponse(
+            articleId=payload.articleId,
+            userId=payload.userId,
+            userMessage=payload.userMessage,
+            answer=answer,
+            model=model,
+            latencyMs=latency,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -44,3 +44,24 @@ class RewriteBatchItemResult(BaseModel):
 
 class RewriteBatchResponse(BaseModel):
     results: List[RewriteBatchItemResult]
+
+# ------- 챗 봇 -------
+
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+class ChatArticleRequest(BaseModel):
+    articleId: str
+    userId: str
+    summary: str
+    history: List[ChatMessage]
+    userMessage: str
+
+class ChatArticleResponse(BaseModel):
+    articleId: str
+    userId: str
+    userMessage: str
+    answer: str
+    model: str
+    latencyMs: int

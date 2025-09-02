@@ -2,7 +2,7 @@ import json, time
 from typing import Any, List, Tuple, Dict
 from openai import OpenAI
 from settings import settings
-from prompts import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE, SUGGEST_WITH_QUIZ_PROMPT
+from prompts import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE, SUGGEST_WITH_QUIZ_PROMPT, CHAT_SYSTEM_PROMPT
 
 def _parse_json_block(text: str) -> dict[str, Any]:
     """
@@ -120,3 +120,30 @@ def suggest_questions_and_quiz(title: str, body: str) -> Tuple[List[str], Dict[s
     latency_ms = int((time.time() - t0) * 1000)
 
     return questions, quiz, meta_in, meta_out, picked_model, latency_ms
+
+def chat_about_article(article_id: str, user_id: str, summary: str, history: list, user_msg: str):
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+
+    messages = [
+        {"role": "system", "content": CHAT_SYSTEM_PROMPT},
+        {"role": "system", "content": f"[기사ID: {article_id}]"},
+        {"role": "system", "content": f"[기사 요약]\n{summary}"}
+    ]
+
+    for h in history:
+        messages.append({"role": h.role, "content": h.content})
+
+    messages.append({"role": "user", "content": user_msg})
+
+    t0 = time.time()
+    resp = client.chat.completions.create(
+        model=settings.MODEL_NAME,
+        messages=messages,
+        temperature=0.5,
+        max_tokens=400,
+    )
+    latency = int((time.time() - t0) * 1000)
+    answer = resp.choices[0].message.content
+    model_used = resp.model
+
+    return answer, model_used, latency
