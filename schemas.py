@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, List
 from pydantic import BaseModel, StringConstraints
 
 StrMin1 = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -17,6 +17,7 @@ class RewriteResponse(BaseModel):
     articleId: str
     newTitle: str
     summary: str
+    questions: List[str]
     tokensUsed: TokensUsed
     model: str
     latencyMs: int
