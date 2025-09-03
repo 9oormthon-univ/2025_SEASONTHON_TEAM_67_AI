@@ -2,7 +2,11 @@ import json, time
 from typing import Any, List, Tuple, Dict
 from openai import OpenAI
 from settings import settings
-from prompts import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE, SUGGEST_WITH_QUIZ_PROMPT, CHAT_SYSTEM_PROMPT
+from prompts import (TITLE_SUMMARY_SYSTEM_PROMPT,
+                     TITLE_SUMMARY_USER_TEMPLATE,
+                     QUESTIONS_SYSTEM_PROMPT,
+                     QUESTIONS_USER_TEMPLATE,
+                     CHAT_SYSTEM_PROMPT)
 
 def _parse_json_block(text: str) -> dict[str, Any]:
     """
@@ -57,14 +61,14 @@ def call_llm(title: str, body: str) -> Tuple[str, str, int, int, str, int]:
         raise RuntimeError("OPENAI_API_KEY가 비어 있습니다. .env 또는 환경변수를 확인하세요.")
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
-    user_prompt = USER_PROMPT_TEMPLATE.format(
+    user_prompt = TITLE_SUMMARY_USER_TEMPLATE.format(
         title=title, body=body[:settings.MAX_BODY_CHARS]
     )
     t0 = time.time()
     resp = client.responses.create(
         model=settings.MODEL_NAME,
         input=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": TITLE_SUMMARY_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.6,
@@ -86,13 +90,16 @@ def suggest_questions_and_quiz(title: str, body: str) -> Tuple[List[str], Dict[s
         raise RuntimeError("OPENAI_API_KEY가 비어 있습니다. .env 또는 환경변수를 확인하세요.")
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
 
-    prompt = SUGGEST_WITH_QUIZ_PROMPT.format(
+    user_prompt  = QUESTIONS_USER_TEMPLATE.format(
         title=title, body=body[:settings.MAX_BODY_CHARS]
     )
     t0 = time.time()
     resp = client.responses.create(
         model=settings.MODEL_NAME,
-        input=prompt,                  # 문자열 하나로 전달
+        input=[
+            {"role": "system", "content": QUESTIONS_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
         temperature=0.6,
         max_output_tokens=320,
     )
