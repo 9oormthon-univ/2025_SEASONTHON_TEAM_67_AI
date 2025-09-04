@@ -16,7 +16,7 @@ jobs:
           $dst = "C:\apps\py"
           robocopy $src $dst /MIR /XD .git .github venv /XF .env py-out.log py-err.log /NDL /NFL
           if ($LASTEXITCODE -ge 8) { exit $LASTEXITCODE } else { exit 0 }
-        shell: powershell -ExecutionPolicy Bypass
+        shell: powershell
 
       - name: Write .env from secret
         shell: powershell
