@@ -1,0 +1,35 @@
+name: deploy-fastapi
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync code to C:\apps\py (mirror)
+        shell: pwsh
+        run: |
+          $src = "$env:GITHUB_WORKSPACE"
+          $dst = "C:\apps\py"
+          robocopy $src $dst /MIR /XD .git .github
+          if ($LASTEXITCODE -lt 8) { exit 0 } else { exit $LASTEXITCODE }
+
+      - name: Write .env from secret
+        shell: pwsh
+        run: |
+          $envPath = "C:\apps\py\.env"
+          Set-Content -Path $envPath -Value "${{ secrets.FASTAPI_ENV_FILE }}"
+
+      - name: Install Python deps (venv already exists)
+        shell: pwsh
+        run: |
+          C:\apps\py\venv\Scripts\pip.exe install --upgrade pip
+          C:\apps\py\venv\Scripts\pip.exe install -r C:\apps\py\requirements.txt
+
+      - name: Restart py-app (NSSM)
+        shell: pwsh
+        run: C:\nssm\nssm.exe restart py-app
