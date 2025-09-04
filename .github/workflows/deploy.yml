@@ -6,6 +6,7 @@ on:
 jobs:
   deploy:
     runs-on: self-hosted
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -13,6 +14,7 @@ jobs:
       - name: Sync code to C:\apps\py (mirror)
         shell: powershell
         run: |
+          Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
           $src = "$env:GITHUB_WORKSPACE"
           $dst = "C:\apps\py"
           robocopy $src $dst /MIR /XD .git .github
@@ -21,15 +23,19 @@ jobs:
       - name: Write .env from secret
         shell: powershell
         run: |
+          Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
           $envPath = "C:\apps\py\.env"
           Set-Content -Path $envPath -Value "${{ secrets.FASTAPI_ENV_FILE }}"
 
       - name: Install Python deps (venv already exists)
         shell: powershell
         run: |
+          Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
           C:\apps\py\venv\Scripts\pip.exe install --upgrade pip
           C:\apps\py\venv\Scripts\pip.exe install -r C:\apps\py\requirements.txt
 
       - name: Restart py-app (NSSM)
         shell: powershell
-        run: C:\nssm\nssm.exe restart py-app
+        run: |
+          Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+          C:\nssm\nssm.exe restart py-app
