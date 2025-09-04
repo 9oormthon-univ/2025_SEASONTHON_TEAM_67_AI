@@ -27,17 +27,13 @@ jobs:
           ${{ secrets.FASTAPI_ENV_FILE }}
           '@ | Set-Content -Path $envPath
 
-      - name: Install Python deps (venv already exists)
+      - name: Recreate venv
         shell: powershell
         run: |
-          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-          $venvPy = "C:\apps\py\venv\Scripts\python.exe"
-          # pip 강제 설치 (ensurepip)
-          & $venvPy -m ensurepip --upgrade
-          # pip 자체를 업그레이드
-          & $venvPy -m pip install --upgrade pip
-          # requirements 설치
-          & $venvPy -m pip install -r C:\apps\py\requirements.txt
+          Remove-Item -Recurse -Force C:\apps\py\venv -ErrorAction SilentlyContinue
+          python -m venv C:\apps\py\venv
+          C:\apps\py\venv\Scripts\python.exe -m pip install --upgrade pip
+          C:\apps\py\venv\Scripts\python.exe -m pip install -r C:\apps\py\requirements.txt
 
       - name: Restart py-app (NSSM)
         shell: powershell
