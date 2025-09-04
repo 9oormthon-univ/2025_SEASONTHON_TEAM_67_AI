@@ -90,3 +90,7 @@ async def chat_article(payload: ChatArticleRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
