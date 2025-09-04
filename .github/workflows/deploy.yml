@@ -24,8 +24,8 @@ jobs:
         run: |
           $envPath = "C:\apps\py\.env"
           @'
-      ${{ secrets.FASTAPI_ENV_FILE }}
-      '@ | Set-Content -Path $envPath
+          ${{ secrets.FASTAPI_ENV_FILE }}
+          '@ | Set-Content -Path $envPath
 
       - name: Install Python deps (venv already exists)
         shell: powershell
