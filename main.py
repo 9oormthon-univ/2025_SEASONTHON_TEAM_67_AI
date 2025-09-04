@@ -93,4 +93,4 @@ async def chat_article(payload: ChatArticleRequest):
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok"}
+    return {"status": "재 배포 성공!!"}
