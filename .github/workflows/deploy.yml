@@ -13,6 +13,7 @@ jobs:
       - name: Sync code to C:\apps\py (mirror)
         shell: powershell
         run: |
+          Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
           $src = "$env:GITHUB_WORKSPACE"
           $dst = "C:\apps\py"
           robocopy $src $dst /MIR /XD .git .github venv /XF .env py-out.log py-err.log /NDL /NFL
