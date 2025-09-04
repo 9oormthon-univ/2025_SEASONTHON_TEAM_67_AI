@@ -31,8 +31,9 @@ jobs:
         shell: powershell
         run: |
           Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-          C:\apps\py\venv\Scripts\pip.exe install --upgrade pip
-          C:\apps\py\venv\Scripts\pip.exe install -r C:\apps\py\requirements.txt
+          C:\apps\py\venv\Scripts\python.exe -m ensurepip --upgrade
+          C:\apps\py\venv\Scripts\python.exe -m pip install --upgrade pip
+          C:\apps\py\venv\Scripts\python.exe -m pip install -r C:\apps\py\requirements.txt
 
       - name: Restart py-app (NSSM)
         shell: powershell
