@@ -10,10 +10,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Stop py-app (NSSM)
+        shell: powershell
+        run: C:\nssm\nssm.exe stop py-app
+
       - name: Sync code to C:\apps\py (mirror)
         shell: powershell
         run: |
-          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
           $src = "$env:GITHUB_WORKSPACE"
           $dst = "C:\apps\py"
           robocopy $src $dst /MIR /XD .git .github venv /XF .env py-out.log py-err.log /NDL /NFL
@@ -27,16 +30,15 @@ jobs:
           ${{ secrets.FASTAPI_ENV_FILE }}
           '@ | Set-Content -Path $envPath
 
-      - name: Recreate venv
+      - name: Recreate venv and install deps
         shell: powershell
         run: |
           Remove-Item -Recurse -Force C:\apps\py\venv -ErrorAction SilentlyContinue
           C:\Users\OHNEW\AppData\Local\Programs\Python\Python312\python.exe -m venv C:\apps\py\venv
+          C:\apps\py\venv\Scripts\python.exe -m ensurepip --upgrade
           C:\apps\py\venv\Scripts\python.exe -m pip install --upgrade pip
           C:\apps\py\venv\Scripts\python.exe -m pip install -r C:\apps\py\requirements.txt
 
-      - name: Restart py-app (NSSM)
+      - name: Start py-app (NSSM)
         shell: powershell
-        run: |
-          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-          C:\nssm\nssm.exe restart py-app
+        run: C:\nssm\nssm.exe start py-app
