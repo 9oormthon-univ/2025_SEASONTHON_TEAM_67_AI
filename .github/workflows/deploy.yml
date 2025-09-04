@@ -6,36 +6,31 @@ on:
 jobs:
   deploy:
     runs-on: self-hosted
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Sync code to C:\apps\py (mirror)
-        shell: powershell
-        run: |
-          Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
-          $src = "$env:GITHUB_WORKSPACE"
-          $dst = "C:\apps\py"
-          robocopy $src $dst /MIR /XD .git .github
-          if ($LASTEXITCODE -lt 8) { exit 0 } else { exit $LASTEXITCODE }
+        shell: 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass'
+        run: >
+          $src = "$env:GITHUB_WORKSPACE";
+          $dst = "C:\apps\py";
+          robocopy $src $dst /MIR /XD .git .github;
+          if ($LASTEXITCODE -ge 8) { exit $LASTEXITCODE }
 
       - name: Write .env from secret
-        shell: powershell
-        run: |
-          Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
-          $envPath = "C:\apps\py\.env"
-          Set-Content -Path $envPath -Value "${{ secrets.FASTAPI_ENV_FILE }}"
+        shell: 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass'
+        run: >
+          $envPath = "C:\apps\py\.env";
+          Set-Content -Path $envPath -Value "${{ secrets.FASTAPI_ENV_FILE }}";
 
       - name: Install Python deps (venv already exists)
-        shell: powershell
-        run: |
-          Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
-          C:\apps\py\venv\Scripts\pip.exe install --upgrade pip
-          C:\apps\py\venv\Scripts\pip.exe install -r C:\apps\py\requirements.txt
+        shell: 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass'
+        run: >
+          C:\apps\py\venv\Scripts\pip.exe install --upgrade pip;
+          C:\apps\py\venv\Scripts\pip.exe install -r C:\apps\py\requirements.txt;
 
       - name: Restart py-app (NSSM)
-        shell: powershell
-        run: |
-          Set-ExecutionPolicy -ExecutionPolicy Bypass -Scope Process -Force
+        shell: 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass'
+        run: >
           C:\nssm\nssm.exe restart py-app
