@@ -22,9 +22,10 @@ jobs:
       - name: Write .env from secret
         shell: powershell
         run: |
-          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
           $envPath = "C:\apps\py\.env"
-          Set-Content -Path $envPath -Value @'${{ secrets.FASTAPI_ENV_FILE }}'@
+          @'
+      ${{ secrets.FASTAPI_ENV_FILE }}
+      '@ | Set-Content -Path $envPath
 
       - name: Install Python deps (venv already exists)
         shell: powershell
