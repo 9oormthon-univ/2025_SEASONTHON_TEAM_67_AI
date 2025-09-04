@@ -10,40 +10,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Stop service (py-app)
-        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -command "{0}"
-        run: C:\nssm\nssm.exe stop py-app
-
-      - name: Sync code to C:\apps\py (mirror, exclude venv/.env/logs)
-        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -command "{0}"
+      - name: Sync code to C:\apps\py (mirror)
+        shell: powershell
         run: |
           $src = "$env:GITHUB_WORKSPACE"
           $dst = "C:\apps\py"
-          # venv, .git, .github, 로그, .env 제외
-          robocopy $src $dst /MIR /XD .git .github venv `
-            /XF .env py-out.log py-err.log `
-            /NFL /NDL
-          if ($LASTEXITCODE -ge 8) { exit $LASTEXITCODE }
+          robocopy $src $dst /MIR /XD .git .github venv /XF .env py-out.log py-err.log /NDL /NFL
+          if ($LASTEXITCODE -ge 8) { exit $LASTEXITCODE } else { exit 0 }
 
       - name: Write .env from secret
-        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -command "{0}"
+        shell: powershell
         run: |
-          Set-Content -Path 'C:\apps\py\.env' -Value "${{ secrets.FASTAPI_ENV_FILE }}"
+          $envPath = "C:\apps\py\.env"
+          Set-Content -Path $envPath -Value @'${{ secrets.FASTAPI_ENV_FILE }}'@
 
-      - name: Install Python deps (reuse existing venv)
-        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -command "{0}"
+      - name: Install Python deps (venv already exists)
+        shell: powershell
         run: |
           C:\apps\py\venv\Scripts\pip.exe install --upgrade pip
           C:\apps\py\venv\Scripts\pip.exe install -r C:\apps\py\requirements.txt
 
-      - name: Start service (py-app)
-        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -command "{0}"
-        run: C:\nssm\nssm.exe start py-app
-
-      - name: (optional) Health check
-        shell: powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -command "{0}"
-        run: |
-          try {
-            $r = Invoke-WebRequest -Uri "http://127.0.0.1:8000/py/health" -UseBasicParsing -TimeoutSec 5
-            Write-Host "Health: $($r.StatusCode)"
-          } catch { Write-Warning "Health check failed"; exit 1 }
+      - name: Restart py-app (NSSM)
+        shell: powershell
+        run: C:\nssm\nssm.exe restart py-app
