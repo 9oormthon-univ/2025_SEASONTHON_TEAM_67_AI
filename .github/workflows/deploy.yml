@@ -31,7 +31,7 @@ jobs:
         shell: powershell
         run: |
           Remove-Item -Recurse -Force C:\apps\py\venv -ErrorAction SilentlyContinue
-          python -m venv C:\apps\py\venv
+          C:\Users\OHNEW\AppData\Local\Programs\Python\Python312\python.exe -m venv C:\apps\py\venv
           C:\apps\py\venv\Scripts\python.exe -m pip install --upgrade pip
           C:\apps\py\venv\Scripts\python.exe -m pip install -r C:\apps\py\requirements.txt
 
