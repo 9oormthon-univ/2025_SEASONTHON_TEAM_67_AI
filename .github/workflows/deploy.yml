@@ -31,9 +31,13 @@ jobs:
         shell: powershell
         run: |
           Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-          C:\apps\py\venv\Scripts\python.exe -m ensurepip --upgrade
-          C:\apps\py\venv\Scripts\python.exe -m pip install --upgrade pip
-          C:\apps\py\venv\Scripts\python.exe -m pip install -r C:\apps\py\requirements.txt
+          $venvPy = "C:\apps\py\venv\Scripts\python.exe"
+          # pip 강제 설치 (ensurepip)
+          & $venvPy -m ensurepip --upgrade
+          # pip 자체를 업그레이드
+          & $venvPy -m pip install --upgrade pip
+          # requirements 설치
+          & $venvPy -m pip install -r C:\apps\py\requirements.txt
 
       - name: Restart py-app (NSSM)
         shell: powershell
