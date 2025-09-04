@@ -11,7 +11,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Sync code to C:\apps\py (mirror)
-        shell: 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass'
+        shell: 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -command "{0}"'
         run: >
           $src = "$env:GITHUB_WORKSPACE";
           $dst = "C:\apps\py";
@@ -19,18 +19,18 @@ jobs:
           if ($LASTEXITCODE -ge 8) { exit $LASTEXITCODE }
 
       - name: Write .env from secret
-        shell: 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass'
+        shell: 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -command "{0}"'
         run: >
           $envPath = "C:\apps\py\.env";
           Set-Content -Path $envPath -Value "${{ secrets.FASTAPI_ENV_FILE }}";
 
       - name: Install Python deps (venv already exists)
-        shell: 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass'
+        shell: 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -command "{0}"'
         run: >
           C:\apps\py\venv\Scripts\pip.exe install --upgrade pip;
           C:\apps\py\venv\Scripts\pip.exe install -r C:\apps\py\requirements.txt;
 
       - name: Restart py-app (NSSM)
-        shell: 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass'
+        shell: 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -command "{0}"'
         run: >
           C:\nssm\nssm.exe restart py-app
