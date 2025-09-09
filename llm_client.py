@@ -147,7 +147,7 @@ def chat_about_article(article_id: str, user_id: str, summary: str, history: lis
         model=settings.MODEL_NAME,
         messages=messages,
         temperature=0.5,
-        max_tokens=350,
+        max_tokens=200,
     )
     latency = int((time.time() - t0) * 1000)
     answer = resp.choices[0].message.content
