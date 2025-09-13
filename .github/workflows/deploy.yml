@@ -1,7 +1,7 @@
 name: deploy-fastapi
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "release" ]
 
 jobs:
   deploy:
