@@ -1,14 +1,26 @@
 import json, time
-from typing import Any, List, Tuple, Dict
+from typing import Any, List, Tuple, Dict, Literal
 from openai import OpenAI
 from settings import settings
-from prompts import (TITLE_SUMMARY_SYSTEM_PROMPT,
-                     TITLE_SUMMARY_USER_TEMPLATE,
+from prompts import (TITLE_SUMMARY_USER_TEMPLATE,
                      QUESTIONS_SYSTEM_PROMPT,
                      QUESTIONS_USER_TEMPLATE,
                      CHAT_SYSTEM_PROMPT,
                      EPI_SYSTEM_PROMPT,
-                     EPI_USER_TEMPLATE)
+                     EPI_USER_TEMPLATE,
+                     TITLE_SUMMARY_SYSTEM_PROMPT_CONCISE,
+                     TITLE_SUMMARY_SYSTEM_PROMPT_FRIENDLY,
+                     TITLE_SUMMARY_SYSTEM_PROMPT_NEUTRAL,
+                     )
+
+NewsStyle = Literal["CONCISE", "FRIENDLY", "NEUTRAL"]
+
+def _style_to_prompt(style: NewsStyle) -> str:
+    if style == "CONCISE":
+        return TITLE_SUMMARY_SYSTEM_PROMPT_CONCISE
+    if style == "FRIENDLY":
+        return TITLE_SUMMARY_SYSTEM_PROMPT_FRIENDLY
+    return TITLE_SUMMARY_SYSTEM_PROMPT_NEUTRAL
 
 def _parse_json_block(text: str) -> dict[str, Any]:
     """
@@ -57,8 +69,8 @@ def _normalize_yes_no(val: str) -> str:
         return "NO"
     raise ValueError(f"quiz.answer가 YES/NO가 아님: {val!r}")
 
-def call_llm(title: str, body: str) -> Tuple[str, str, int, int, str, int]:
-    """호출#1: 새 제목/요약"""
+def call_llm(title: str, body: str, system_prompt: str) -> Tuple[str, str, int, int, str, int]:
+    # (기존 함수 시그니처 변경: system_prompt 인자를 받도록)
     if not settings.OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY가 비어 있습니다. .env 또는 환경변수를 확인하세요.")
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
@@ -70,7 +82,7 @@ def call_llm(title: str, body: str) -> Tuple[str, str, int, int, str, int]:
     resp = client.responses.create(
         model=settings.MODEL_NAME,
         input=[
-            {"role": "system", "content": TITLE_SUMMARY_SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.6,
@@ -85,6 +97,37 @@ def call_llm(title: str, body: str) -> Tuple[str, str, int, int, str, int]:
 
     parsed = _parse_json_block(text)
     return parsed["newTitle"], parsed["summary"], meta_in, meta_out, picked_model, latency_ms
+
+# --- 스타일별 파이프라인 한 번 실행 ---
+def run_one_style(style: NewsStyle, title: str, body: str):
+    sys_prompt = _style_to_prompt(style)
+    new_title, summary, in1, out1, model, lat1 = call_llm(title, body, sys_prompt)
+    questions, quiz, in2, out2, _, lat2 = suggest_questions_and_quiz(title, body)
+    epi_json, in3, out3, _, lat3, reason = evaluate_epi(title, body, new_title, summary)
+
+    epi = {
+        "epiOriginal": int(epi_json["original"]["EPI"]),
+        "epiSummary": int(epi_json["summary"]["EPI"]),
+        "reductionPct": float(epi_json.get("reductionPct", 0)),
+        "stimulationReduced": str(epi_json.get("stimulationReduced", "자극도를 0% 줄였어요")),
+        "componentsOriginal": {k: float(epi_json["original"][k]) for k in
+                               ("S","SUBJ","K","F","C","V","X","EVID")},
+        "componentsSummary":  {k: float(epi_json["summary"][k])  for k in
+                               ("S","SUBJ","K","F","C","V","X","EVID")},
+        "reason": reason
+    }
+
+    return {
+        "newsStyle": style,
+        "newTitle": new_title.strip(),
+        "summary": summary.strip(),
+        "questions": questions,
+        "quiz": quiz,
+        "tokensUsed": {"input": in1 + in2 + in3, "output": out1 + out2 + out3},
+        "model": model,
+        "latencyMs": lat1 + lat2 + lat3,
+        "epi": epi,
+    }
 
 def suggest_questions_and_quiz(title: str, body: str) -> Tuple[List[str], Dict[str, str], int, int, str, int]:
     """호출#2: 질문 4개 + 예/아니오 퀴즈 1개(정답 YES/NO)"""

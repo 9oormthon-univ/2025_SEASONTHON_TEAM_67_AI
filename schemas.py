@@ -4,6 +4,8 @@ from pydantic import BaseModel, StringConstraints
 StrMin1 = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 BodyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=50)]
 
+NewsStyle = Literal["CONCISE", "FRIENDLY", "NEUTRAL"]
+
 class RewriteRequest(BaseModel):
     articleId: StrMin1
     title: StrMin1
@@ -77,3 +79,31 @@ class ChatArticleResponse(BaseModel):
     answer: str
     model: str
     latencyMs: int
+
+class RewriteVariant(BaseModel):
+    newsStyle: NewsStyle
+    articleId: str
+    newTitle: str
+    summary: str
+    questions: List[str]
+    quiz: Quiz
+    tokensUsed: TokensUsed
+    model: str
+    latencyMs: int
+    epi: EpiResult
+
+class RewriteMultiResponse(BaseModel):
+    articleId: str
+    variants: List[RewriteVariant]          # 길이 3 (스타일별)
+    tokensUsedTotal: TokensUsed             # variants 합계
+    latencyMsTotal: int                     # variants 합계(또는 max)
+
+# 배치용 결과도 멀티 버전을 추가
+class RewriteBatchItemMultiResult(BaseModel):
+    articleId: str
+    ok: bool
+    data: Optional[RewriteMultiResponse] = None
+    error: Optional[str] = None
+
+class RewriteBatchMultiResponse(BaseModel):
+    results: List[RewriteBatchItemMultiResult]
