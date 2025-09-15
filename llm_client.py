@@ -6,7 +6,9 @@ from prompts import (TITLE_SUMMARY_SYSTEM_PROMPT,
                      TITLE_SUMMARY_USER_TEMPLATE,
                      QUESTIONS_SYSTEM_PROMPT,
                      QUESTIONS_USER_TEMPLATE,
-                     CHAT_SYSTEM_PROMPT)
+                     CHAT_SYSTEM_PROMPT,
+                     EPI_SYSTEM_PROMPT,
+                     EPI_USER_TEMPLATE)
 
 def _parse_json_block(text: str) -> dict[str, Any]:
     """
@@ -154,3 +156,51 @@ def chat_about_article(article_id: str, user_id: str, summary: str, history: lis
     model_used = resp.model
 
     return answer, model_used, latency
+
+
+def evaluate_epi(original_title: str, original_body: str, generated_title: str, generated_summary: str) -> Tuple[dict, int, int, str, int, str]:
+    """호출#3: 원문 vs 요약 EPI 평가"""
+    if not settings.OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY가 비어 있습니다. .env 또는 환경변수를 확인하세요.")
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+
+    user_prompt = EPI_USER_TEMPLATE.format(
+        originalTitle=original_title,
+        originalBody=original_body[:settings.MAX_BODY_CHARS],
+        generatedTitle=generated_title,
+        generatedSummary=generated_summary
+    )
+    t0 = time.time()
+    resp = client.responses.create(
+        model=settings.MODEL_NAME,
+        input=[
+            {"role": "system", "content": EPI_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.2,           # 평가 일관성 위해 낮게
+        max_output_tokens=300,
+    )
+    text = _extract_output_text(resp)
+    data = _parse_json_block(text)
+
+    usage = getattr(resp, "usage", None)
+    meta_in  = getattr(usage, "input_tokens", 0) if usage else 0
+    meta_out = getattr(usage, "output_tokens", 0) if usage else 0
+    picked_model = getattr(resp, "model", settings.MODEL_NAME)
+    latency_ms = int((time.time() - t0) * 1000)
+
+    # 최소 범위 검증
+    for side in ("original", "summary"):
+        comp = data.get(side, {})
+        for k in ("S","SUBJ","K","F","C","V","X","EVID"):
+            v = float(comp.get(k, 0))
+            if not (0.0 <= v <= 1.0):
+                raise ValueError(f"EPI 컴포넌트 범위 오류: {side}.{k}={v}")
+        epi_val = int(comp.get("EPI", 0))
+        if not (0 <= epi_val <= 100):
+            raise ValueError(f"EPI 값 범위 오류: {side}.EPI={epi_val}")
+
+    # 자극도 감소 이유 추가
+    reason = data.get("reason", "자극도 감소 이유를 생성할 수 없습니다.")
+
+    return data, meta_in, meta_out, picked_model, latency_ms, reason

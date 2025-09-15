@@ -4,7 +4,7 @@ from schemas import (
     RewriteRequest, RewriteResponse, TokensUsed,
     RewriteBatchRequest, RewriteBatchResponse, RewriteBatchItemResult, RewriteBatchItemIn, ChatArticleRequest, ChatArticleResponse
 )
-from llm_client import call_llm, suggest_questions_and_quiz, chat_about_article
+from llm_client import call_llm, suggest_questions_and_quiz, chat_about_article, evaluate_epi
 
 app = FastAPI(title="Article Rewriter API", version="1.3.1")
 
@@ -18,6 +18,19 @@ async def rewrite_summarize(payload: RewriteRequest):
     try:
         new_title, summary, in1, out1, model, lat1 = call_llm(payload.title, body)
         questions, quiz, in2, out2, _, lat2 = suggest_questions_and_quiz(payload.title, body)
+        epi_json, in3, out3, _, lat3, reason = evaluate_epi(payload.title, body, new_title, summary)
+
+        epi = {
+            "epiOriginal": int(epi_json["original"]["EPI"]),
+            "epiSummary": int(epi_json["summary"]["EPI"]),
+            "reductionPct": float(epi_json.get("reductionPct", 0)),
+            "stimulationReduced": str(epi_json.get("stimulationReduced", "자극도를 0% 줄였어요")),
+            "componentsOriginal": {k: float(epi_json["original"][k]) for k in
+                                   ("S","SUBJ","K","F","C","V","X","EVID")},
+            "componentsSummary":  {k: float(epi_json["summary"][k])  for k in
+                                   ("S","SUBJ","K","F","C","V","X","EVID")},
+            "reason": reason
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -27,9 +40,10 @@ async def rewrite_summarize(payload: RewriteRequest):
         summary=summary.strip(),
         questions=questions,
         quiz=quiz,
-        tokensUsed=TokensUsed(input=in1 + in2, output=out1 + out2),
+        tokensUsed=TokensUsed(input=in1 + in2 + in3, output=out1 + out2 + out3),
         model=model,
-        latencyMs=lat1 + lat2
+        latencyMs=lat1 + lat2 + lat3,
+        epi=epi
     )
 
 @app.post("/v1/rewrite-batch", response_model=RewriteBatchResponse)
@@ -51,15 +65,32 @@ async def rewrite_batch(payload: RewriteBatchRequest):
                 questions, quiz, in2, out2, _, lat2 = await asyncio.to_thread(
                     suggest_questions_and_quiz, item.title, body
                 )
+                epi_json, in3, out3, _, lat3, reason = await asyncio.to_thread(
+                    evaluate_epi, item.title, body, new_title, summary
+                )
+
+                epi = {
+                    "epiOriginal": int(epi_json["original"]["EPI"]),
+                    "epiSummary": int(epi_json["summary"]["EPI"]),
+                    "reductionPct": float(epi_json.get("reductionPct", 0)),
+                    "stimulationReduced": str(epi_json.get("stimulationReduced", "자극도를 0% 줄였어요")),
+                    "componentsOriginal": {k: float(epi_json["original"][k]) for k in
+                                           ("S", "SUBJ", "K", "F", "C", "V", "X", "EVID")},
+                    "componentsSummary": {k: float(epi_json["summary"][k]) for k in
+                                          ("S", "SUBJ", "K", "F", "C", "V", "X", "EVID")},
+                    "reason": reason
+                }
+
                 resp = RewriteResponse(
                     articleId=item.articleId,
                     newTitle=new_title.strip(),
                     summary=summary.strip(),
                     questions=questions,
                     quiz=quiz,
-                    tokensUsed=TokensUsed(input=in1 + in2, output=out1 + out2),
+                    tokensUsed=TokensUsed(input=in1 + in2 + in3, output=out1 + out2 + out3),
                     model=model,
-                    latencyMs=lat1 + lat2
+                    latencyMs=lat1 + lat2 + lat3,
+                    epi=epi
                 )
                 return RewriteBatchItemResult(articleId=item.articleId, ok=True, data=resp)
             except Exception as e:
