@@ -29,18 +29,6 @@ class EpiResult(BaseModel):
     componentsSummary: Dict[str, float]
     reason: str
 
-# ------- 뉴스 요약 응답 -----
-class RewriteResponse(BaseModel):
-    articleId: str
-    newTitle: str
-    summary: str
-    questions: List[str]
-    quiz: Quiz
-    tokensUsed: TokensUsed
-    model: str
-    latencyMs: int
-    epi: EpiResult
-
 # ------- 배치 전용(느슨하게: body 길이 제한 없음) -------
 class RewriteBatchItemIn(BaseModel):
     articleId: StrMin1
@@ -49,15 +37,6 @@ class RewriteBatchItemIn(BaseModel):
 
 class RewriteBatchRequest(BaseModel):
     items: List[RewriteBatchItemIn]
-
-class RewriteBatchItemResult(BaseModel):
-    articleId: str
-    ok: bool
-    data: Optional[RewriteResponse] = None
-    error: Optional[str] = None
-
-class RewriteBatchResponse(BaseModel):
-    results: List[RewriteBatchItemResult]
 
 # ------- 챗 봇 -------
 
@@ -80,14 +59,13 @@ class ChatArticleResponse(BaseModel):
     model: str
     latencyMs: int
 
+# ------- 스타일별 변형 스키마 -------
+
 class RewriteVariant(BaseModel):
     newsStyle: NewsStyle
     articleId: str
     newTitle: str
     summary: str
-    questions: List[str]
-    quiz: Quiz
-    tokensUsed: TokensUsed
     model: str
     latencyMs: int
     epi: EpiResult
@@ -95,10 +73,12 @@ class RewriteVariant(BaseModel):
 class RewriteMultiResponse(BaseModel):
     articleId: str
     variants: List[RewriteVariant]          # 길이 3 (스타일별)
+    questions: List[str]                    # 질문/퀴즈는 기사당 1세트
+    quiz: Quiz
     tokensUsedTotal: TokensUsed             # variants 합계
     latencyMsTotal: int                     # variants 합계(또는 max)
 
-# 배치용 결과도 멀티 버전을 추가
+# 배치용 결과도 멀티 버전을 사용
 class RewriteBatchItemMultiResult(BaseModel):
     articleId: str
     ok: bool
