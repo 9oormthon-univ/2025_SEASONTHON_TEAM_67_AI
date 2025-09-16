@@ -1,74 +1,111 @@
 from fastapi import FastAPI, HTTPException
 import asyncio
 from schemas import (
-    RewriteRequest, RewriteResponse, TokensUsed,
-    RewriteBatchRequest, RewriteBatchResponse, RewriteBatchItemResult, RewriteBatchItemIn, ChatArticleRequest, ChatArticleResponse
+    RewriteRequest,TokensUsed,
+    RewriteBatchRequest,ChatArticleRequest, ChatArticleResponse,
+    RewriteBatchMultiResponse, RewriteBatchItemMultiResult,
+    RewriteVariant, RewriteMultiResponse
 )
-from llm_client import call_llm, suggest_questions_and_quiz, chat_about_article
+from llm_client import suggest_questions_and_quiz, chat_about_article, build_variants_for_styles
 
 app = FastAPI(title="Article Rewriter API", version="1.3.1")
 
 CONCURRENCY_ARTICLES = 4 #한번에 요청 개수 제한
 
-@app.post("/v1/rewrite-summarize", response_model=RewriteResponse)
-async def rewrite_summarize(payload: RewriteRequest):
+@app.post("/v1/rewrite-summarize3", response_model=RewriteMultiResponse)
+async def rewrite_summarize3(payload: RewriteRequest):
     body = payload.body.strip()
     if len(body) < 50:
         raise HTTPException(status_code=422, detail="본문이 너무 짧습니다(최소 50자).")
-    try:
-        new_title, summary, in1, out1, model, lat1 = call_llm(payload.title, body)
-        questions, quiz, in2, out2, _, lat2 = suggest_questions_and_quiz(payload.title, body)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
-    return RewriteResponse(
-        articleId=payload.articleId,
-        newTitle=new_title.strip(),
-        summary=summary.strip(),
-        questions=questions,
-        quiz=quiz,
-        tokensUsed=TokensUsed(input=in1 + in2, output=out1 + out2),
-        model=model,
-        latencyMs=lat1 + lat2
+    styles = ["CONCISE", "FRIENDLY", "NEUTRAL"]
+
+    # [변경] 스타일별 요약/EPI 한번에 생성 (질문/퀴즈는 여기서 만들지 않음)
+    variants, v_in, v_out, v_lat = await asyncio.to_thread(
+        build_variants_for_styles, payload.title, body, styles
     )
 
-@app.post("/v1/rewrite-batch", response_model=RewriteBatchResponse)
-async def rewrite_batch(payload: RewriteBatchRequest):
+    # [추가] 기사당 1회만 질문/퀴즈 생성
+    questions, quiz, q_in, q_out, _, q_lat = await asyncio.to_thread(
+        suggest_questions_and_quiz, payload.title, body
+    )
+
+    # [변경] per-variant tokens 제거 → 최상위 합계만
+    return RewriteMultiResponse(
+        articleId=payload.articleId,
+        variants=[
+            RewriteVariant(
+                newsStyle=v["newsStyle"],
+                articleId=payload.articleId,
+                newTitle=v["newTitle"],
+                summary=v["summary"],
+                # [삭제] variants 내부 questions/quiz 삭제
+                # [삭제] tokensUsed 삭제
+                model=v["model"],
+                latencyMs=v["latencyMs"],
+                epi=v["epi"]
+            )
+            for v in variants
+        ],
+        # [추가] 공통 질문/퀴즈를 최상위에 포함시켜야 하므로 스키마에 반영 필요(아래 schemas.py 참고)
+        questions=questions,
+        quiz=quiz,
+        tokensUsedTotal=TokensUsed(input=v_in + q_in, output=v_out + q_out),
+        latencyMsTotal=v_lat + q_lat
+    )
+
+@app.post("/v1/rewrite-batch3", response_model=RewriteBatchMultiResponse)
+async def rewrite_batch3(payload: RewriteBatchRequest):
     sem = asyncio.Semaphore(CONCURRENCY_ARTICLES)
 
-    async def process_one(item: RewriteBatchItemIn) -> RewriteBatchItemResult:
+    async def process_one(item) -> RewriteBatchItemMultiResult:
         async with sem:
             body = (item.body or "").strip()
             if len(body) < 50:
-                return RewriteBatchItemResult(
+                return RewriteBatchItemMultiResult(
                     articleId=item.articleId, ok=False,
                     error="본문이 너무 짧습니다(최소 50자)."
                 )
             try:
-                new_title, summary, in1, out1, model, lat1 = await asyncio.to_thread(
-                    call_llm, item.title, body
+                styles = ["CONCISE", "FRIENDLY", "NEUTRAL"]
+
+                # [변경] 스타일별 요약/EPI 일괄 생성
+                variants, v_in, v_out, v_lat = await asyncio.to_thread(
+                    build_variants_for_styles, item.title, body, styles
                 )
-                questions, quiz, in2, out2, _, lat2 = await asyncio.to_thread(
+                # [추가] 기사당 1회만 질문/퀴즈 생성
+                questions, quiz, q_in, q_out, _, q_lat = await asyncio.to_thread(
                     suggest_questions_and_quiz, item.title, body
                 )
-                resp = RewriteResponse(
+
+                data = RewriteMultiResponse(
                     articleId=item.articleId,
-                    newTitle=new_title.strip(),
-                    summary=summary.strip(),
+                    variants=[
+                        RewriteVariant(
+                            newsStyle=v["newsStyle"],
+                            articleId=item.articleId,
+                            newTitle=v["newTitle"],
+                            summary=v["summary"],
+                            # [삭제] variants 내부 questions/quiz/tokensUsed 제거
+                            model=v["model"],
+                            latencyMs=v["latencyMs"],
+                            epi=v["epi"]
+                        )
+                        for v in variants
+                    ],
+                    # [추가] 공통 질문/퀴즈: 최상위에 배치
                     questions=questions,
                     quiz=quiz,
-                    tokensUsed=TokensUsed(input=in1 + in2, output=out1 + out2),
-                    model=model,
-                    latencyMs=lat1 + lat2
+                    tokensUsedTotal=TokensUsed(input=v_in + q_in, output=v_out + q_out),
+                    latencyMsTotal=v_lat + q_lat
                 )
-                return RewriteBatchItemResult(articleId=item.articleId, ok=True, data=resp)
+                return RewriteBatchItemMultiResult(articleId=item.articleId, ok=True, data=data)
             except Exception as e:
-                return RewriteBatchItemResult(articleId=item.articleId, ok=False, error=str(e))
+                return RewriteBatchItemMultiResult(articleId=item.articleId, ok=False, error=str(e))
 
     tasks = [process_one(it) for it in payload.items]
     results = await asyncio.gather(*tasks)
-    return RewriteBatchResponse(results=list(results))
-
+    return RewriteBatchMultiResponse(results=list(results))
 
 @app.post("/v1/chat-article", response_model=ChatArticleResponse)
 async def chat_article(payload: ChatArticleRequest):
