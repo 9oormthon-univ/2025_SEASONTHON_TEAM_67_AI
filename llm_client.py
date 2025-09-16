@@ -16,11 +16,14 @@ from prompts import (TITLE_SUMMARY_USER_TEMPLATE,
 NewsStyle = Literal["CONCISE", "FRIENDLY", "NEUTRAL"]
 
 def _style_to_prompt(style: NewsStyle) -> str:
-    if style == "CONCISE":
-        return TITLE_SUMMARY_SYSTEM_PROMPT_CONCISE
-    if style == "FRIENDLY":
-        return TITLE_SUMMARY_SYSTEM_PROMPT_FRIENDLY
-    return TITLE_SUMMARY_SYSTEM_PROMPT_NEUTRAL
+    mapping = {
+        "CONCISE":  TITLE_SUMMARY_SYSTEM_PROMPT_CONCISE,
+        "FRIENDLY": TITLE_SUMMARY_SYSTEM_PROMPT_FRIENDLY,
+        "NEUTRAL":  TITLE_SUMMARY_SYSTEM_PROMPT_NEUTRAL,
+    }
+    if style not in mapping:
+        raise ValueError(f"지원하지 않는 스타일: {style!r}")
+    return mapping[style]
 
 def _parse_json_block(text: str) -> dict[str, Any]:
     """
@@ -98,39 +101,51 @@ def call_llm(title: str, body: str, system_prompt: str) -> Tuple[str, str, int, 
     parsed = _parse_json_block(text)
     return parsed["newTitle"], parsed["summary"], meta_in, meta_out, picked_model, latency_ms
 
-# --- 스타일별 파이프라인 한 번 실행 ---
-def run_one_style(style: NewsStyle, title: str, body: str):
-    sys_prompt = _style_to_prompt(style)
-    new_title, summary, in1, out1, model, lat1 = call_llm(title, body, sys_prompt)
-    questions, quiz, in2, out2, _, lat2 = suggest_questions_and_quiz(title, body)
-    epi_json, in3, out3, _, lat3, reason = evaluate_epi(title, body, new_title, summary)
+# 기사당 1번만 질문/퀴즈를 만들기
+def build_variants_for_styles(title: str, body: str, styles: List[NewsStyle]):
+    """
+    스타일 리스트에 대해 (제목/요약 + EPI)만 생성하여 variants 배열을 만든다.
+    질문/퀴즈는 여기서 만들지 않는다. (엔드포인트에서 기사당 1회 호출)
+    반환: (variants: List[dict], total_in: int, total_out: int, total_latency: int)
+    """
+    if not styles:
+        return [], 0, 0, 0
 
-    epi = {
-        "epiOriginal": int(epi_json["original"]["EPI"]),
-        "epiSummary": int(epi_json["summary"]["EPI"]),
-        "reductionPct": float(epi_json.get("reductionPct", 0)),
-        "stimulationReduced": str(epi_json.get("stimulationReduced", "자극도를 0% 줄였어요")),
-        "componentsOriginal": {k: float(epi_json["original"][k]) for k in
-                               ("S","SUBJ","K","F","C","V","X","EVID")},
-        "componentsSummary":  {k: float(epi_json["summary"][k])  for k in
-                               ("S","SUBJ","K","F","C","V","X","EVID")},
-        "reason": reason
-    }
+    variants: List[Dict[str, Any]] = []
+    total_in = total_out = total_latency = 0
 
-    return {
-        "newsStyle": style,
-        "newTitle": new_title.strip(),
-        "summary": summary.strip(),
-        "questions": questions,
-        "quiz": quiz,
-        "tokensUsed": {"input": in1 + in2 + in3, "output": out1 + out2 + out3},
-        "model": model,
-        "latencyMs": lat1 + lat2 + lat3,
-        "epi": epi,
-    }
+    for style in styles:
+        sys_prompt = _style_to_prompt(style)
+        new_title, summary, in1, out1, model, lat1 = call_llm(title, body, sys_prompt)
+        epi_json, in3, out3, _, lat3, reason = evaluate_epi(title, body, new_title, summary)
+
+        epi = {
+            "epiOriginal": int(epi_json["original"]["EPI"]),
+            "epiSummary": int(epi_json["summary"]["EPI"]),
+            "reductionPct": float(epi_json.get("reductionPct", 0)),
+            "stimulationReduced": str(epi_json.get("stimulationReduced", "자극도를 0% 줄였어요")),
+            "componentsOriginal": {k: float(epi_json["original"][k]) for k in ("S","SUBJ","K","F","C","V","X","EVID")},
+            "componentsSummary":  {k: float(epi_json["summary"][k])  for k in ("S","SUBJ","K","F","C","V","X","EVID")},
+            "reason": reason
+        }
+
+        variants.append({
+            "newsStyle": style,
+            "newTitle": new_title.strip(),
+            "summary": summary.strip(),
+            "model": model,
+            "latencyMs": lat1 + lat3,
+            "epi": epi,
+        })
+
+        total_in  += in1 + in3
+        total_out += out1 + out3
+        total_latency += lat1 + lat3
+
+    return variants, total_in, total_out, total_latency
 
 def suggest_questions_and_quiz(title: str, body: str) -> Tuple[List[str], Dict[str, str], int, int, str, int]:
-    """호출#2: 질문 4개 + 예/아니오 퀴즈 1개(정답 YES/NO)"""
+    """ 질문 4개 + 예/아니오 퀴즈 1개(정답 YES/NO)"""
     if not settings.OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY가 비어 있습니다. .env 또는 환경변수를 확인하세요.")
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
@@ -202,7 +217,7 @@ def chat_about_article(article_id: str, user_id: str, summary: str, history: lis
 
 
 def evaluate_epi(original_title: str, original_body: str, generated_title: str, generated_summary: str) -> Tuple[dict, int, int, str, int, str]:
-    """호출#3: 원문 vs 요약 EPI 평가"""
+    """ 원문 vs 요약 EPI 평가"""
     if not settings.OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY가 비어 있습니다. .env 또는 환경변수를 확인하세요.")
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
@@ -243,7 +258,7 @@ def evaluate_epi(original_title: str, original_body: str, generated_title: str, 
         if not (0 <= epi_val <= 100):
             raise ValueError(f"EPI 값 범위 오류: {side}.EPI={epi_val}")
 
-    # 자극도 감소 이유 추가
+    # 자극도 감소 이유
     reason = data.get("reason", "자극도 감소 이유를 생성할 수 없습니다.")
 
     return data, meta_in, meta_out, picked_model, latency_ms, reason
