@@ -11,6 +11,13 @@ from llm_client import suggest_questions_and_quiz, chat_about_article, build_var
 app = FastAPI(title="Article Rewriter API", version="1.3.1")
 
 CONCURRENCY_ARTICLES = 4 #한번에 요청 개수 제한
+CHUNK_SIZE = 3            # 한번에 보낼 기사 개수 (청크 크기)
+CHUNK_DELAY_SEC = 50     # 청크 사이 지연(초)
+
+def _chunked(seq, size):
+    """seq를 size개 단위로 순회하는 제너레이터"""
+    for i in range(0, len(seq), size):
+        yield seq[i:i+size]
 
 @app.post("/v1/rewrite-summarize3", response_model=RewriteMultiResponse)
 async def rewrite_summarize3(payload: RewriteRequest):
@@ -20,17 +27,16 @@ async def rewrite_summarize3(payload: RewriteRequest):
 
     styles = ["CONCISE", "FRIENDLY", "NEUTRAL"]
 
-    # [변경] 스타일별 요약/EPI 한번에 생성 (질문/퀴즈는 여기서 만들지 않음)
+    # 스타일별 요약/EPI 한번에 생성 (질문/퀴즈는 여기서 만들지 않음)
     variants, v_in, v_out, v_lat = await asyncio.to_thread(
         build_variants_for_styles, payload.title, body, styles
     )
 
-    # [추가] 기사당 1회만 질문/퀴즈 생성
+    # 기사당 1회만 질문/퀴즈 생성
     questions, quiz, q_in, q_out, _, q_lat = await asyncio.to_thread(
         suggest_questions_and_quiz, payload.title, body
     )
 
-    # [변경] per-variant tokens 제거 → 최상위 합계만
     return RewriteMultiResponse(
         articleId=payload.articleId,
         variants=[
@@ -39,15 +45,13 @@ async def rewrite_summarize3(payload: RewriteRequest):
                 articleId=payload.articleId,
                 newTitle=v["newTitle"],
                 summary=v["summary"],
-                # [삭제] variants 내부 questions/quiz 삭제
-                # [삭제] tokensUsed 삭제
                 model=v["model"],
                 latencyMs=v["latencyMs"],
                 epi=v["epi"]
             )
             for v in variants
         ],
-        # [추가] 공통 질문/퀴즈를 최상위에 포함시켜야 하므로 스키마에 반영 필요(아래 schemas.py 참고)
+
         questions=questions,
         quiz=quiz,
         tokensUsedTotal=TokensUsed(input=v_in + q_in, output=v_out + q_out),
@@ -69,11 +73,11 @@ async def rewrite_batch3(payload: RewriteBatchRequest):
             try:
                 styles = ["CONCISE", "FRIENDLY", "NEUTRAL"]
 
-                # [변경] 스타일별 요약/EPI 일괄 생성
+                # 스타일별 요약/EPI 생성
                 variants, v_in, v_out, v_lat = await asyncio.to_thread(
                     build_variants_for_styles, item.title, body, styles
                 )
-                # [추가] 기사당 1회만 질문/퀴즈 생성
+                # 기사당 1회만 질문/퀴즈 생성
                 questions, quiz, q_in, q_out, _, q_lat = await asyncio.to_thread(
                     suggest_questions_and_quiz, item.title, body
                 )
@@ -86,14 +90,12 @@ async def rewrite_batch3(payload: RewriteBatchRequest):
                             articleId=item.articleId,
                             newTitle=v["newTitle"],
                             summary=v["summary"],
-                            # [삭제] variants 내부 questions/quiz/tokensUsed 제거
                             model=v["model"],
                             latencyMs=v["latencyMs"],
                             epi=v["epi"]
                         )
                         for v in variants
                     ],
-                    # [추가] 공통 질문/퀴즈: 최상위에 배치
                     questions=questions,
                     quiz=quiz,
                     tokensUsedTotal=TokensUsed(input=v_in + q_in, output=v_out + q_out),
@@ -103,9 +105,18 @@ async def rewrite_batch3(payload: RewriteBatchRequest):
             except Exception as e:
                 return RewriteBatchItemMultiResult(articleId=item.articleId, ok=False, error=str(e))
 
-    tasks = [process_one(it) for it in payload.items]
-    results = await asyncio.gather(*tasks)
-    return RewriteBatchMultiResponse(results=list(results))
+    all_results = []
+    for chunk in _chunked(payload.items, CHUNK_SIZE):
+        # 청크의 작업들을 동시에 처리 (최대 CONCURRENCY_ARTICLES 만큼 세마포어 제한)
+        tasks = [process_one(it) for it in chunk]
+        chunk_results = await asyncio.gather(*tasks)
+        all_results.extend(chunk_results)
+
+        # 다음 청크로 넘어가기 전 잠깐 대기 -> GPT TPM 한도 때문
+        # 마지막 청크 뒤에는 굳이 안 쉬어도 되지만 단순화를 위해 통일
+        await asyncio.sleep(CHUNK_DELAY_SEC)
+
+    return RewriteBatchMultiResponse(results=list(all_results))
 
 @app.post("/v1/chat-article", response_model=ChatArticleResponse)
 async def chat_article(payload: ChatArticleRequest):
